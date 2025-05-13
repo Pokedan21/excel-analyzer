@@ -233,5 +233,46 @@ if uploaded_file:
             file_name="cumulative_data.xlsx",
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+        import matplotlib.pyplot as plt
+import io
+
+st.header("📈 Cumulative 10–300 MW Plants Built Since 2015 (by Type)")
+
+# === Display Chart
+fig, ax = plt.subplots(figsize=(10, 6))
+for plant_type in cumulative.columns:
+    ax.plot(cumulative.index, cumulative[plant_type], label=plant_type)
+
+ax.set_title("Cumulative number of 10–300 MW plants built starting 2015,\nsplit by plant type")
+ax.set_xlabel("Year")
+ax.set_ylabel("Cumulative Count")
+ax.legend()
+ax.grid(True)
+st.pyplot(fig)
+
+# === 📥 Download Chart as PNG
+img_buf = io.BytesIO()
+fig.savefig(img_buf, format='png')
+st.download_button(
+    label="📥 Download chart as PNG",
+    data=img_buf.getvalue(),
+    file_name="cumulative_plant_type_chart.png",
+    mime="image/png"
+)
+
+# === 📥 Download Table as Excel
+def to_excel_bytes(df):
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df.to_excel(writer)
+    return buffer.getvalue()
+
+st.download_button(
+    label="📊 Download table as Excel",
+    data=to_excel_bytes(cumulative),
+    file_name="cumulative_by_type.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
+
 else:
     st.info("👆 Please upload an Excel file to begin.")
