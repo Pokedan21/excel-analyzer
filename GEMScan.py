@@ -238,6 +238,23 @@ if uploaded_file:
 
         st.header("📈 Cumulative 10–300 MW Plants Built Since 2015 (by Type)")
 
+        # Prepare cumulative grouped table by plant type
+        if all(col in df.columns for col in ["Start year", "Capacity (MW)", "Type"]):
+            valid_plants = df[
+                (pd.to_numeric(df["Capacity (MW)"], errors="coerce") >= 10) &
+                (pd.to_numeric(df["Capacity (MW)"], errors="coerce") <= 300) &
+                (pd.to_numeric(df["Start year"], errors="coerce") >= 2015) &
+                df["Type"].notna()
+            ].copy()
+
+            valid_plants["Start year"] = pd.to_numeric(valid_plants["Start year"], errors="coerce")
+            valid_plants["Type"] = valid_plants["Type"].astype(str)
+
+            annual = valid_plants.groupby(["Start year", "Type"]).size().unstack(fill_value=0).sort_index()
+            cumulative = annual.cumsum()
+        else:
+            st.warning("⚠️ Cannot show cumulative chart by type — required columns missing: 'Start year', 'Capacity (MW)', or 'Type'")
+
         # === Display Chart
         fig, ax = plt.subplots(figsize=(10, 6))
         for plant_type in cumulative.columns:
