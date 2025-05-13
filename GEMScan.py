@@ -38,6 +38,13 @@ def try_convert_dates(df):
                 pass
     return df
 
+# Excel byte generator for download buttons
+def to_excel_bytes(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=True)
+    return output.getvalue()
+
 if uploaded_file:
     sheet_names = get_valid_sheet_names(uploaded_file)
     selected_sheet = st.selectbox("📄 Select sheet to load:", sheet_names)
@@ -64,6 +71,10 @@ if uploaded_file:
 
     st.sidebar.header("🔎 Filter Options")
 
+    # Universal filter logic toggle
+    logic_mode = st.sidebar.radio("Combine all filters using:", ["AND", "OR"], index=0)
+
+    # Reset button
     if st.sidebar.button("🔄 Reset All Filters"):
         for key in list(st.session_state.keys()):
             if key.endswith("_select_all") or key.endswith("_multiselect") or key.endswith("_logic"):
@@ -72,12 +83,14 @@ if uploaded_file:
 
     filter_conditions = []
 
+    # Numeric filter: Capacity
     if "Capacity (MW)" in df.columns:
         min_cap, max_cap = float(df["Capacity (MW)"].min()), float(df["Capacity (MW)"].max())
         cap_range = st.sidebar.slider("Capacity (MW)", min_value=min_cap, max_value=max_cap, value=(min_cap, max_cap))
         condition = (df["Capacity (MW)"] >= cap_range[0]) & (df["Capacity (MW)"] <= cap_range[1])
         filter_conditions.append(condition)
 
+    # Numeric filter: Start year
     if "Start year" in df.columns:
         year_col = df["Start year"].dropna()
         if not year_col.empty:
@@ -86,35 +99,37 @@ if uploaded_file:
             condition = (df["Start year"] >= selected_years[0]) & (df["Start year"] <= selected_years[1])
             filter_conditions.append(condition)
 
+    # Boolean filter: GEM unit
     if "GEM unit/phase ID" in df.columns:
         include_gem_only = st.sidebar.checkbox("✅ Only include GEM units", value=False)
         if include_gem_only:
             condition = df["GEM unit/phase ID"].notna()
             filter_conditions.append(condition)
 
+    # String filters with Match ANY / Match ALL logic
     for column in df.columns:
         if column in ["Capacity (MW)", "Start year", "GEM unit/phase ID"]:
             continue
 
         col_data = df[column].dropna()
-
         if pd.api.types.is_string_dtype(col_data):
             with st.sidebar.expander(f"🔤 Filter: {column}", expanded=False):
                 logic_key = f"{column}_logic"
-                logic_mode = st.radio("Match Mode", ["Match ANY (OR)", "Match ALL (AND)"], key=logic_key)
+                logic_mode_col = st.radio("Match Mode", ["Match ANY (OR)", "Match ALL (AND)"], key=logic_key)
                 unique_values = sorted(col_data.unique().tolist())
                 selected_options = st.multiselect(f"{column}", unique_values, key=f"{column}_multiselect")
                 if selected_options:
-                    if logic_mode.startswith("Match ANY"):
+                    if logic_mode_col.startswith("Match ANY"):
                         condition = df[column].isin(selected_options)
                     else:
                         condition = df[column].apply(lambda x: all(opt in str(x) for opt in selected_options))
                     filter_conditions.append(condition)
 
+    # Apply combined filter
     if filter_conditions:
         combined_filter = filter_conditions[0]
         for cond in filter_conditions[1:]:
-            combined_filter &= cond
+            combined_filter = combined_filter & cond if logic_mode == "AND" else combined_filter | cond
         filtered_df = df[combined_filter]
     else:
         filtered_df = df.copy()
@@ -123,6 +138,7 @@ if uploaded_file:
         st.warning("⚠️ No data matches your filters.")
         st.stop()
 
+    # Sort and show
     sort_column = st.selectbox("🗂️ Sort by column:", df.columns)
     sort_order = st.radio("Sort Order", ["Ascending", "Descending"])
     filtered_df = filtered_df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
@@ -130,20 +146,19 @@ if uploaded_file:
     st.write(f"✅ Showing {len(filtered_df)} matching record(s):")
     st.dataframe(filtered_df.head(100))
 
-    # 📥 Download: Filtered Data
     st.download_button(
         label="📥 Download filtered table as Excel",
-        data=filtered_df.to_excel(index=False, engine='openpyxl'),
+        data=to_excel_bytes(filtered_df),
         file_name="filtered_table.xlsx",
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-    # === Chart Section
+    # Chart Builder
     st.header("📈 Customize Your Chart")
 
     chart_type = st.selectbox("Choose chart type", ["Line", "Bar", "Area", "Pie"])
     x_col = st.selectbox("X-axis column", options=filtered_df.columns)
-    y_col = st.selectbox("Y-axis column (for counting, use a column with categories)", options=filtered_df.columns)
+    y_col = st.selectbox("Y-axis column", options=filtered_df.columns)
     group_col = st.selectbox("Group by (optional)", ["None"] + list(filtered_df.columns))
     group_col = None if group_col == "None" else group_col
 
@@ -159,7 +174,6 @@ if uploaded_file:
         plot_df = filtered_df.groupby(x_col)[y_col].count()
 
     fig, ax = plt.subplots()
-
     if chart_type == "Line":
         plot_df.plot(kind="line", ax=ax, marker="o")
     elif chart_type == "Bar":
@@ -184,20 +198,14 @@ if uploaded_file:
 
     st.pyplot(fig)
 
-    # 📥 Download: Chart Data
-    if isinstance(plot_df, pd.Series):
-        plot_df_to_save = plot_df.to_frame()
-    else:
-        plot_df_to_save = plot_df
-
     st.download_button(
         label="📊 Download chart data as Excel",
-        data=plot_df_to_save.to_excel(engine='openpyxl'),
+        data=to_excel_bytes(plot_df if isinstance(plot_df, pd.DataFrame) else plot_df.to_frame()),
         file_name="chart_data.xlsx",
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-    # === Cumulative Chart (optional)
+    # Cumulative Chart
     st.header("📈 Cumulative Plant Chart (Filtered Data)")
     if "Capacity (MW)" in filtered_df.columns and "Start year" in filtered_df.columns:
         group_10_300 = filtered_df[(filtered_df["Capacity (MW)"] >= 10) & (filtered_df["Capacity (MW)"] <= 300)]
@@ -219,13 +227,11 @@ if uploaded_file:
         ax2.grid(True)
         st.pyplot(fig2)
 
-        # 📥 Download: Cumulative Data
         st.download_button(
             label="📈 Download cumulative data as Excel",
-            data=cum_df.to_excel(engine='openpyxl'),
+            data=to_excel_bytes(cum_df),
             file_name="cumulative_data.xlsx",
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-
 else:
     st.info("👆 Please upload an Excel file to begin.")
