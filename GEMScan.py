@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
+import io
 
 st.set_page_config(page_title="Excel Analyzer", layout="wide")
 st.title("📊 Excel Analyzer: Filter, Explore, and Visualize")
@@ -39,10 +40,6 @@ def try_convert_dates(df):
 
 if uploaded_file:
     sheet_names = get_valid_sheet_names(uploaded_file)
-    if not sheet_names:
-        st.warning("⚠️ No usable sheets found.")
-        st.stop()
-
     selected_sheet = st.selectbox("📄 Select sheet to load:", sheet_names)
 
     with st.spinner("🔄 Loading sample data..."):
@@ -65,7 +62,6 @@ if uploaded_file:
     else:
         df = sample_df.copy()
 
-    # === Sidebar Filters ===
     st.sidebar.header("🔎 Filter Options")
 
     if st.sidebar.button("🔄 Reset All Filters"):
@@ -76,7 +72,6 @@ if uploaded_file:
 
     filter_conditions = []
 
-    # Numeric filters
     if "Capacity (MW)" in df.columns:
         min_cap, max_cap = float(df["Capacity (MW)"].min()), float(df["Capacity (MW)"].max())
         cap_range = st.sidebar.slider("Capacity (MW)", min_value=min_cap, max_value=max_cap, value=(min_cap, max_cap))
@@ -97,7 +92,6 @@ if uploaded_file:
             condition = df["GEM unit/phase ID"].notna()
             filter_conditions.append(condition)
 
-    # === String Filters with Per-Filter AND/OR ===
     for column in df.columns:
         if column in ["Capacity (MW)", "Start year", "GEM unit/phase ID"]:
             continue
@@ -117,7 +111,6 @@ if uploaded_file:
                         condition = df[column].apply(lambda x: all(opt in str(x) for opt in selected_options))
                     filter_conditions.append(condition)
 
-    # Apply filters
     if filter_conditions:
         combined_filter = filter_conditions[0]
         for cond in filter_conditions[1:]:
@@ -130,14 +123,22 @@ if uploaded_file:
         st.warning("⚠️ No data matches your filters.")
         st.stop()
 
-    # === Table ===
     sort_column = st.selectbox("🗂️ Sort by column:", df.columns)
     sort_order = st.radio("Sort Order", ["Ascending", "Descending"])
     filtered_df = filtered_df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
+
     st.write(f"✅ Showing {len(filtered_df)} matching record(s):")
     st.dataframe(filtered_df.head(100))
 
-    # === Interactive Chart Section ===
+    # 📥 Download: Filtered Data
+    st.download_button(
+        label="📥 Download filtered table as Excel",
+        data=filtered_df.to_excel(index=False, engine='openpyxl'),
+        file_name="filtered_table.xlsx",
+        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    )
+
+    # === Chart Section
     st.header("📈 Customize Your Chart")
 
     chart_type = st.selectbox("Choose chart type", ["Line", "Bar", "Area", "Pie"])
@@ -152,13 +153,11 @@ if uploaded_file:
     y_label = st.text_input("Y-axis label", value="Count" if chart_type != "Pie" else "")
     x_label = st.text_input("X-axis label", value=x_col)
 
-    # Build chart data
     if group_col:
         plot_df = filtered_df.groupby([x_col, group_col])[y_col].count().unstack().fillna(0)
     else:
         plot_df = filtered_df.groupby(x_col)[y_col].count()
 
-    # Plot
     fig, ax = plt.subplots()
 
     if chart_type == "Line":
@@ -185,12 +184,48 @@ if uploaded_file:
 
     st.pyplot(fig)
 
-    # === Download
+    # 📥 Download: Chart Data
+    if isinstance(plot_df, pd.Series):
+        plot_df_to_save = plot_df.to_frame()
+    else:
+        plot_df_to_save = plot_df
+
     st.download_button(
-        label="📥 Download filtered data as Excel",
-        data=filtered_df.to_excel(index=False, engine='openpyxl'),
-        file_name=f"{selected_sheet}_filtered_output.xlsx",
+        label="📊 Download chart data as Excel",
+        data=plot_df_to_save.to_excel(engine='openpyxl'),
+        file_name="chart_data.xlsx",
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
+
+    # === Cumulative Chart (optional)
+    st.header("📈 Cumulative Plant Chart (Filtered Data)")
+    if "Capacity (MW)" in filtered_df.columns and "Start year" in filtered_df.columns:
+        group_10_300 = filtered_df[(filtered_df["Capacity (MW)"] >= 10) & (filtered_df["Capacity (MW)"] <= 300)]
+        group_300_plus = filtered_df[filtered_df["Capacity (MW)"] > 300]
+
+        cum_10_300 = group_10_300["Start year"].value_counts().sort_index().cumsum()
+        cum_300_plus = group_300_plus["Start year"].value_counts().sort_index().cumsum()
+
+        cum_df = pd.DataFrame({
+            "10–300 MW": cum_10_300,
+            "300+ MW": cum_300_plus
+        }).fillna(method='ffill').fillna(0)
+
+        fig2, ax2 = plt.subplots()
+        cum_df.plot(ax=ax2, marker='o')
+        ax2.set_title("Cumulative Count of Filtered Plants by Size")
+        ax2.set_ylabel("Cumulative Count")
+        ax2.set_xlabel("Start Year")
+        ax2.grid(True)
+        st.pyplot(fig2)
+
+        # 📥 Download: Cumulative Data
+        st.download_button(
+            label="📈 Download cumulative data as Excel",
+            data=cum_df.to_excel(engine='openpyxl'),
+            file_name="cumulative_data.xlsx",
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
 else:
     st.info("👆 Please upload an Excel file to begin.")
