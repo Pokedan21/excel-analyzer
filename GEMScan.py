@@ -38,7 +38,6 @@ def try_convert_dates(df):
                 pass
     return df
 
-# Excel byte generator for download buttons
 def to_excel_bytes(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -65,16 +64,13 @@ if uploaded_file:
         with st.spinner("📂 Loading full dataset... please wait."):
             df = try_convert_dates(load_full_sheet(uploaded_file, selected_sheet))
             df["Start year"] = pd.to_numeric(df.get("Start year", pd.Series(dtype="float")), errors="coerce")
-        st.success("✅ Full data loaded successfully.")
     else:
         df = sample_df.copy()
 
     st.sidebar.header("🔎 Filter Options")
 
-    # Universal filter logic toggle
     logic_mode = st.sidebar.radio("Combine all filters using:", ["AND", "OR"], index=0)
 
-    # Reset button
     if st.sidebar.button("🔄 Reset All Filters"):
         for key in list(st.session_state.keys()):
             if key.endswith("_select_all") or key.endswith("_multiselect") or key.endswith("_logic"):
@@ -83,14 +79,12 @@ if uploaded_file:
 
     filter_conditions = []
 
-    # Numeric filter: Capacity
     if "Capacity (MW)" in df.columns:
         min_cap, max_cap = float(df["Capacity (MW)"].min()), float(df["Capacity (MW)"].max())
         cap_range = st.sidebar.slider("Capacity (MW)", min_value=min_cap, max_value=max_cap, value=(min_cap, max_cap))
         condition = (df["Capacity (MW)"] >= cap_range[0]) & (df["Capacity (MW)"] <= cap_range[1])
         filter_conditions.append(condition)
 
-    # Numeric filter: Start year
     if "Start year" in df.columns:
         year_col = df["Start year"].dropna()
         if not year_col.empty:
@@ -99,14 +93,12 @@ if uploaded_file:
             condition = (df["Start year"] >= selected_years[0]) & (df["Start year"] <= selected_years[1])
             filter_conditions.append(condition)
 
-    # Boolean filter: GEM unit
     if "GEM unit/phase ID" in df.columns:
         include_gem_only = st.sidebar.checkbox("✅ Only include GEM units", value=False)
         if include_gem_only:
             condition = df["GEM unit/phase ID"].notna()
             filter_conditions.append(condition)
 
-    # String filters with Match ANY / Match ALL logic
     for column in df.columns:
         if column in ["Capacity (MW)", "Start year", "GEM unit/phase ID"]:
             continue
@@ -125,7 +117,6 @@ if uploaded_file:
                         condition = df[column].apply(lambda x: all(opt in str(x) for opt in selected_options))
                     filter_conditions.append(condition)
 
-    # Apply combined filter
     if filter_conditions:
         combined_filter = filter_conditions[0]
         for cond in filter_conditions[1:]:
@@ -138,7 +129,6 @@ if uploaded_file:
         st.warning("⚠️ No data matches your filters.")
         st.stop()
 
-    # Sort and show
     sort_column = st.selectbox("🗂️ Sort by column:", df.columns)
     sort_order = st.radio("Sort Order", ["Ascending", "Descending"])
     filtered_df = filtered_df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
@@ -153,143 +143,63 @@ if uploaded_file:
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-    # Chart Builder
-    st.header("📈 Customize Your Chart")
+    # ===== PERMANENT CUMULATIVE CHART BY TYPE =====
 
-    chart_type = st.selectbox("Choose chart type", ["Line", "Bar", "Area", "Pie"])
-    x_col = st.selectbox("X-axis column", options=filtered_df.columns)
-    y_col = st.selectbox("Y-axis column", options=filtered_df.columns)
-    group_col = st.selectbox("Group by (optional)", ["None"] + list(filtered_df.columns))
-    group_col = None if group_col == "None" else group_col
+    # Rename columns if necessary
+    if "Plant Type" in df.columns:
+        df.rename(columns={"Plant Type": "Type"}, inplace=True)
+    elif "Technology" in df.columns:
+        df.rename(columns={"Technology": "Type"}, inplace=True)
 
-    show_grid = st.checkbox("Show grid", True)
-    rotate_labels = st.checkbox("Rotate x labels", True)
-    title = st.text_input("Chart title", value=f"{chart_type} Chart of {y_col} vs {x_col}")
-    y_label = st.text_input("Y-axis label", value="Count" if chart_type != "Pie" else "")
-    x_label = st.text_input("X-axis label", value=x_col)
+    if all(col in df.columns for col in ["Start year", "Capacity (MW)", "Type"]):
+        st.subheader("📈 Cumulative 10–300 MW Plants Built Since 2015 (by Type)")
 
-    if group_col:
-        plot_df = filtered_df.groupby([x_col, group_col])[y_col].count().unstack().fillna(0)
-    else:
-        plot_df = filtered_df.groupby(x_col)[y_col].count()
+        valid_plants = df[
+            (pd.to_numeric(df["Capacity (MW)"], errors="coerce") >= 10) &
+            (pd.to_numeric(df["Capacity (MW)"], errors="coerce") <= 300) &
+            (pd.to_numeric(df["Start year"], errors="coerce") >= 2015) &
+            df["Type"].notna()
+        ].copy()
 
-    fig, ax = plt.subplots()
-    if chart_type == "Line":
-        plot_df.plot(kind="line", ax=ax, marker="o")
-    elif chart_type == "Bar":
-        plot_df.plot(kind="bar", ax=ax)
-    elif chart_type == "Area":
-        plot_df.plot(kind="area", ax=ax, stacked=True)
-    elif chart_type == "Pie":
-        if isinstance(plot_df, pd.Series):
-            plot_df = plot_df[plot_df > 0].nlargest(10)
-            plot_df.plot(kind="pie", ax=ax, autopct='%1.1f%%', ylabel='')
+        valid_plants["Start year"] = pd.to_numeric(valid_plants["Start year"], errors="coerce")
+        valid_plants["Type"] = valid_plants["Type"].astype(str)
+
+        if valid_plants.empty:
+            st.warning("⚠️ No plants match the criteria for 10–300 MW and Start Year ≥ 2015.")
         else:
-            st.warning("Pie chart only supports a single y-axis series.")
-
-    ax.set_title(title)
-    if chart_type != "Pie":
-        ax.set_xlabel(x_label)
-        ax.set_ylabel(y_label)
-        if rotate_labels:
-            ax.tick_params(axis="x", rotation=45)
-        if show_grid:
-            ax.grid(True)
-
-    st.pyplot(fig)
-
-    st.download_button(
-        label="📊 Download chart data as Excel",
-        data=to_excel_bytes(plot_df if isinstance(plot_df, pd.DataFrame) else plot_df.to_frame()),
-        file_name="chart_data.xlsx",
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-
-    # Cumulative Chart
-    st.header("📈 Cumulative Plant Chart (Filtered Data)")
-    if "Capacity (MW)" in filtered_df.columns and "Start year" in filtered_df.columns:
-        group_10_300 = filtered_df[(filtered_df["Capacity (MW)"] >= 10) & (filtered_df["Capacity (MW)"] <= 300)]
-        group_300_plus = filtered_df[filtered_df["Capacity (MW)"] > 300]
-
-        cum_10_300 = group_10_300["Start year"].value_counts().sort_index().cumsum()
-        cum_300_plus = group_300_plus["Start year"].value_counts().sort_index().cumsum()
-
-        cum_df = pd.DataFrame({
-            "10–300 MW": cum_10_300,
-            "300+ MW": cum_300_plus
-        }).fillna(method='ffill').fillna(0)
-
-        fig2, ax2 = plt.subplots()
-        cum_df.plot(ax=ax2, marker='o')
-        ax2.set_title("Cumulative Count of Filtered Plants by Size")
-        ax2.set_ylabel("Cumulative Count")
-        ax2.set_xlabel("Start Year")
-        ax2.grid(True)
-        st.pyplot(fig2)
-
-        st.download_button(
-            label="📈 Download cumulative data as Excel",
-            data=to_excel_bytes(cum_df),
-            file_name="cumulative_data.xlsx",
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
-        import matplotlib.pyplot as plt
-        import io
-
-        st.header("📈 Cumulative 10–300 MW Plants Built Since 2015 (by Type)")
-
-        # Prepare cumulative grouped table by plant type
-        if all(col in df.columns for col in ["Start year", "Capacity (MW)", "Type"]):
-            valid_plants = df[
-                (pd.to_numeric(df["Capacity (MW)"], errors="coerce") >= 10) &
-                (pd.to_numeric(df["Capacity (MW)"], errors="coerce") <= 300) &
-                (pd.to_numeric(df["Start year"], errors="coerce") >= 2015) &
-                df["Type"].notna()
-            ].copy()
-
-            valid_plants["Start year"] = pd.to_numeric(valid_plants["Start year"], errors="coerce")
-            valid_plants["Type"] = valid_plants["Type"].astype(str)
-
             annual = valid_plants.groupby(["Start year", "Type"]).size().unstack(fill_value=0).sort_index()
             cumulative = annual.cumsum()
-        else:
-            st.warning("⚠️ Cannot show cumulative chart by type — required columns missing: 'Start year', 'Capacity (MW)', or 'Type'")
 
-        # === Display Chart
-        fig, ax = plt.subplots(figsize=(10, 6))
-        for plant_type in cumulative.columns:
-            ax.plot(cumulative.index, cumulative[plant_type], label=plant_type)
+            st.subheader("📊 Cumulative Table")
+            st.dataframe(cumulative)
 
-        ax.set_title("Cumulative number of 10–300 MW plants built starting 2015,\nsplit by plant type")
-        ax.set_xlabel("Year")
-        ax.set_ylabel("Cumulative Count")
-        ax.legend()
-        ax.grid(True)
-        st.pyplot(fig)
+            fig, ax = plt.subplots(figsize=(10, 6))
+            for col in cumulative.columns:
+                ax.plot(cumulative.index, cumulative[col], label=col)
+            ax.set_title("Cumulative number of 10–300 MW plants built since 2015,\nsplit by plant type")
+            ax.set_xlabel("Year")
+            ax.set_ylabel("Cumulative Plant Count")
+            ax.legend()
+            ax.grid(True)
+            st.pyplot(fig)
 
-        # === 📥 Download Chart as PNG
-        img_buf = io.BytesIO()
-        fig.savefig(img_buf, format='png')
-        st.download_button(
-            label="📥 Download chart as PNG",
-            data=img_buf.getvalue(),
-            file_name="cumulative_plant_type_chart.png",
-            mime="image/png"
-        )
+            img_buf = io.BytesIO()
+            fig.savefig(img_buf, format='png')
+            st.download_button(
+                label="📥 Download chart as PNG",
+                data=img_buf.getvalue(),
+                file_name="cumulative_plant_type_chart.png",
+                mime="image/png"
+            )
 
-        # === 📥 Download Table as Excel
-        def to_excel_bytes(df):
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df.to_excel(writer)
-            return buffer.getvalue()
-
-        st.download_button(
-            label="📊 Download table as Excel",
-            data=to_excel_bytes(cumulative),
-            file_name="cumulative_by_type.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+            st.download_button(
+                label="📥 Download table as Excel",
+                data=to_excel_bytes(cumulative),
+                file_name="cumulative_plant_type_table.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+    else:
+        st.warning("⚠️ Cannot show cumulative chart — required columns missing: 'Start year', 'Capacity (MW)', or a type column like 'Plant Type'.")
 
 else:
     st.info("👆 Please upload an Excel file to begin.")
