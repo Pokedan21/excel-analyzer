@@ -273,6 +273,13 @@ if uploaded_file:
                 file_name="cumulative_by_type.xlsx",
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             )
+            st.write("Filtered row count:", len(filtered_df))
+    st.write("Start years:", filtered_df["Start year"].dropna().unique())
+    st.write("Capacities:", filtered_df["Capacity (MW)"].dropna().unique())
+    st.write("Available columns:", df.columns.tolist())
+    if type_col:
+        st.write(f"Sample values in {type_col}:", filtered_df[type_col].dropna().unique())
+
 
 else:
     st.info("👆 Please upload an Excel file to begin.")
