@@ -147,7 +147,11 @@ if uploaded_file:
 
     sort_column = st.selectbox("🗂️ Sort by column:", df.columns)
     sort_order = st.radio("Sort Order", ["Ascending", "Descending"])
-    filtered_df = filtered_df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
+    if sort_column in filtered_df.columns:
+        filtered_df = filtered_df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
+    else:
+        st.warning(f"⚠️ Column '{sort_column}' not found in filtered data. Skipping sort.")
+
 
     st.write(f"✅ Showing {len(filtered_df)} matching record(s):")
     st.dataframe(filtered_df.head(100))
