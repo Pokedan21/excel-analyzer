@@ -38,7 +38,6 @@ def try_convert_dates(df):
                 pass
     return df
 
-# Excel byte generator for download buttons
 def to_excel_bytes(df):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -224,7 +223,7 @@ if uploaded_file:
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-    # New cumulative chart by plant type
+    # ✅ New robust cumulative chart by plant type
     st.header("📈 Cumulative 10–300 MW Plants by Type Since 2015")
 
     type_col = None
@@ -249,26 +248,31 @@ if uploaded_file:
             cum_df
             .groupby(["Start year", cum_df[type_col]])
             .size()
-            .unstack(fill_value=0)
-            .sort_index()
-            .cumsum()
+            .unstack()
+            .fillna(0)
         )
 
-        fig3, ax3 = plt.subplots(figsize=(10, 6))
-        group_counts.plot(ax=ax3, marker='o')
-        ax3.set_title("Cumulative number of 10 - 300 MW plants built starting 2015,\nsplit into different plant types")
-        ax3.set_xlabel("Year")
-        ax3.set_ylabel("Cumulative Count")
-        ax3.grid(True)
-        ax3.legend(title=type_col)
-        st.pyplot(fig3)
+        if group_counts.empty:
+            st.warning("⚠️ No valid data found to generate the cumulative chart.")
+        else:
+            group_counts = group_counts.sort_index().cumsum()
+            group_counts = group_counts.apply(pd.to_numeric, errors='coerce').fillna(0)
 
-        st.download_button(
-            label="📥 Download cumulative chart data",
-            data=to_excel_bytes(group_counts),
-            file_name="cumulative_by_type.xlsx",
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        )
+            fig3, ax3 = plt.subplots(figsize=(10, 6))
+            group_counts.plot(ax=ax3, marker='o')
+            ax3.set_title("Cumulative number of 10 - 300 MW plants built starting 2015,\nsplit into different plant types")
+            ax3.set_xlabel("Year")
+            ax3.set_ylabel("Cumulative Count")
+            ax3.grid(True)
+            ax3.legend(title=type_col)
+            st.pyplot(fig3)
+
+            st.download_button(
+                label="📥 Download cumulative chart data",
+                data=to_excel_bytes(group_counts),
+                file_name="cumulative_by_type.xlsx",
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
 
 else:
     st.info("👆 Please upload an Excel file to begin.")
