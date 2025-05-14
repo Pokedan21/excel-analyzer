@@ -180,8 +180,8 @@ if uploaded_file:
     else:
         st.warning("⚠️ Missing 'Capacity (MW)', 'Start year' or 'Type' column.")
 
-else:
-    st.info("👆 Please upload an Excel file to begin.")
+    else:
+        st.info("👆 Please upload an Excel file to begin.")
 
         st.warning("⚠️ Cannot show cumulative chart — required columns missing: 'Start year', 'Capacity (MW)', or a type column like 'Plant Type'.")
 
