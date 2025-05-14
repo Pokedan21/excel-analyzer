@@ -9,6 +9,12 @@ st.title("📊 Excel Analyzer: Filter, Explore, and Visualize")
 uploaded_file = st.file_uploader("📥 Upload an Excel file", type=["xlsx"])
 
 @st.cache_data
+def dedup_columns(df):
+    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+    df.columns = df.columns.map(str)
+    return df
+
+@st.cache_data
 def get_valid_sheet_names(upload):
     try:
         excel_file = pd.ExcelFile(upload, engine='openpyxl')
@@ -20,14 +26,12 @@ def get_valid_sheet_names(upload):
 @st.cache_data
 def load_sample_sheet(upload, sheet_name, sample_size=500):
     df = pd.read_excel(upload, sheet_name=sheet_name, engine='openpyxl', nrows=sample_size)
-    df.columns = df.columns.map(str)
-    return df
+    return dedup_columns(df)
 
 @st.cache_data
 def load_full_sheet(upload, sheet_name):
     df = pd.read_excel(upload, sheet_name=sheet_name, engine='openpyxl')
-    df.columns = df.columns.map(str)
-    return df
+    return dedup_columns(df)
 
 def try_convert_dates(df):
     for col in df.columns:
@@ -43,14 +47,12 @@ def to_excel_bytes(df):
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=True)
     return output.getvalue()
-
 if uploaded_file:
     sheet_names = get_valid_sheet_names(uploaded_file)
     selected_sheet = st.selectbox("📄 Select sheet to load:", sheet_names)
 
     with st.spinner("🔄 Loading sample data..."):
         sample_df = try_convert_dates(load_sample_sheet(uploaded_file, selected_sheet))
-        sample_df["Start year"] = pd.to_numeric(sample_df.get("Start year", pd.Series(dtype="float")), errors="coerce")
     st.success("✅ Sample loaded.")
 
     st.markdown("### 🧾 Sample Columns in File")
@@ -63,12 +65,23 @@ if uploaded_file:
     if st.checkbox("🔍 Load full data from this sheet (may take time)"):
         with st.spinner("📂 Loading full dataset... please wait."):
             df = try_convert_dates(load_full_sheet(uploaded_file, selected_sheet))
-            df["Start year"] = pd.to_numeric(df.get("Start year", pd.Series(dtype="float")), errors="coerce")
     else:
         df = sample_df.copy()
 
-    st.sidebar.header("🔎 Filter Options")
+    # Dynamically find relevant columns
+    cap_col = next((c for c in df.columns if c.startswith("Capacity (MW)")), None)
+    year_col = next((c for c in df.columns if c.startswith("Start year")), None)
 
+    if cap_col: df[cap_col] = pd.to_numeric(df[cap_col], errors="coerce")
+    if year_col: df[year_col] = pd.to_numeric(df[year_col], errors="coerce")
+
+    # Rename type-like column
+    if "Plant Type" in df.columns:
+        df.rename(columns={"Plant Type": "Type"}, inplace=True)
+    elif "Technology" in df.columns:
+        df.rename(columns={"Technology": "Type"}, inplace=True)
+
+    st.sidebar.header("🔎 Filter Options")
     logic_mode = st.sidebar.radio("Combine all filters using:", ["AND", "OR"], index=0)
 
     if st.sidebar.button("🔄 Reset All Filters"):
@@ -79,49 +92,42 @@ if uploaded_file:
 
     filter_conditions = []
 
-    if "Capacity (MW)" in df.columns:
-        min_cap, max_cap = float(df["Capacity (MW)"].min()), float(df["Capacity (MW)"].max())
+    if cap_col:
+        min_cap, max_cap = float(df[cap_col].min()), float(df[cap_col].max())
         cap_range = st.sidebar.slider("Capacity (MW)", min_value=min_cap, max_value=max_cap, value=(min_cap, max_cap))
-        condition = (df["Capacity (MW)"] >= cap_range[0]) & (df["Capacity (MW)"] <= cap_range[1])
-        filter_conditions.append(condition)
+        filter_conditions.append((df[cap_col] >= cap_range[0]) & (df[cap_col] <= cap_range[1]))
 
-    if "Start year" in df.columns:
-        year_col = df["Start year"].dropna()
-        if not year_col.empty:
-            min_year, max_year = int(year_col.min()), int(year_col.max())
+    if year_col:
+        year_data = df[year_col].dropna()
+        if not year_data.empty:
+            min_year, max_year = int(year_data.min()), int(year_data.max())
             selected_years = st.sidebar.slider("Start year", min_year, max_year, (min_year, max_year))
-            condition = (df["Start year"] >= selected_years[0]) & (df["Start year"] <= selected_years[1])
-            filter_conditions.append(condition)
+            filter_conditions.append((df[year_col] >= selected_years[0]) & (df[year_col] <= selected_years[1]))
 
     if "GEM unit/phase ID" in df.columns:
-        include_gem_only = st.sidebar.checkbox("✅ Only include GEM units", value=False)
-        if include_gem_only:
-            condition = df["GEM unit/phase ID"].notna()
-            filter_conditions.append(condition)
+        if st.sidebar.checkbox("✅ Only include GEM units", value=False):
+            filter_conditions.append(df["GEM unit/phase ID"].notna())
 
     for column in df.columns:
-        if column in ["Capacity (MW)", "Start year", "GEM unit/phase ID"]:
+        if column in [cap_col, year_col, "GEM unit/phase ID"]:
             continue
-
         col_data = df[column].dropna()
         if pd.api.types.is_string_dtype(col_data):
             with st.sidebar.expander(f"🔤 Filter: {column}", expanded=False):
-                logic_key = f"{column}_logic"
-                logic_mode_col = st.radio("Match Mode", ["Match ANY (OR)", "Match ALL (AND)"], key=logic_key)
-                unique_values = sorted(col_data.unique().tolist())
-                selected_options = st.multiselect(f"{column}", unique_values, key=f"{column}_multiselect")
-                if selected_options:
+                logic_mode_col = st.radio("Match Mode", ["Match ANY (OR)", "Match ALL (AND)"], key=f"{column}_logic")
+                options = sorted(col_data.unique().tolist())
+                selected = st.multiselect(f"{column}", options, key=f"{column}_multiselect")
+                if selected:
                     if logic_mode_col.startswith("Match ANY"):
-                        condition = df[column].isin(selected_options)
+                        filter_conditions.append(df[column].isin(selected))
                     else:
-                        condition = df[column].apply(lambda x: all(opt in str(x) for opt in selected_options))
-                    filter_conditions.append(condition)
+                        filter_conditions.append(df[column].apply(lambda x: all(opt in str(x) for opt in selected)))
 
     if filter_conditions:
-        combined_filter = filter_conditions[0]
+        combined = filter_conditions[0]
         for cond in filter_conditions[1:]:
-            combined_filter = combined_filter & cond if logic_mode == "AND" else combined_filter | cond
-        filtered_df = df[combined_filter]
+            combined = combined & cond if logic_mode == "AND" else combined | cond
+        filtered_df = df[combined]
     else:
         filtered_df = df.copy()
 
@@ -143,62 +149,40 @@ if uploaded_file:
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-    # ===== PERMANENT CUMULATIVE CHART BY TYPE =====
-
-    # Rename columns if necessary
-    if "Plant Type" in df.columns:
-        df.rename(columns={"Plant Type": "Type"}, inplace=True)
-    elif "Technology" in df.columns:
-        df.rename(columns={"Technology": "Type"}, inplace=True)
-
-    if all(col in df.columns for col in ["Start year", "Capacity (MW)", "Type"]):
+    # === Permanent Cumulative Chart ===
+    if cap_col and year_col and "Type" in df.columns:
         st.subheader("📈 Cumulative 10–300 MW Plants Built Since 2015 (by Type)")
-
-        valid_plants = df[
-            (pd.to_numeric(df["Capacity (MW)"], errors="coerce") >= 10) &
-            (pd.to_numeric(df["Capacity (MW)"], errors="coerce") <= 300) &
-            (pd.to_numeric(df["Start year"], errors="coerce") >= 2015) &
-            df["Type"].notna()
+        valid = df[
+            (df[cap_col] >= 10) & (df[cap_col] <= 300) &
+            (df[year_col] >= 2015) & df["Type"].notna()
         ].copy()
-
-        valid_plants["Start year"] = pd.to_numeric(valid_plants["Start year"], errors="coerce")
-        valid_plants["Type"] = valid_plants["Type"].astype(str)
-
-        if valid_plants.empty:
-            st.warning("⚠️ No plants match the criteria for 10–300 MW and Start Year ≥ 2015.")
+        if valid.empty:
+            st.warning("⚠️ No matching plants found.")
         else:
-            annual = valid_plants.groupby(["Start year", "Type"]).size().unstack(fill_value=0).sort_index()
+            annual = valid.groupby([year_col, "Type"]).size().unstack(fill_value=0).sort_index()
             cumulative = annual.cumsum()
-
-            st.subheader("📊 Cumulative Table")
             st.dataframe(cumulative)
 
             fig, ax = plt.subplots(figsize=(10, 6))
             for col in cumulative.columns:
                 ax.plot(cumulative.index, cumulative[col], label=col)
-            ax.set_title("Cumulative number of 10–300 MW plants built since 2015,\nsplit by plant type")
-            ax.set_xlabel("Year")
-            ax.set_ylabel("Cumulative Plant Count")
+            ax.set_title("Cumulative 10–300 MW Plants Since 2015 by Type")
+            ax.set_xlabel("Start Year")
+            ax.set_ylabel("Cumulative Count")
             ax.legend()
             ax.grid(True)
             st.pyplot(fig)
 
             img_buf = io.BytesIO()
             fig.savefig(img_buf, format='png')
-            st.download_button(
-                label="📥 Download chart as PNG",
-                data=img_buf.getvalue(),
-                file_name="cumulative_plant_type_chart.png",
-                mime="image/png"
-            )
-
-            st.download_button(
-                label="📥 Download table as Excel",
-                data=to_excel_bytes(cumulative),
-                file_name="cumulative_plant_type_table.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            st.download_button("📥 Download chart as PNG", data=img_buf.getvalue(), file_name="cumulative_chart.png", mime="image/png")
+            st.download_button("📥 Download table as Excel", data=to_excel_bytes(cumulative), file_name="cumulative_table.xlsx", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
+        st.warning("⚠️ Missing 'Capacity (MW)', 'Start year' or 'Type' column.")
+
+else:
+    st.info("👆 Please upload an Excel file to begin.")
+
         st.warning("⚠️ Cannot show cumulative chart — required columns missing: 'Start year', 'Capacity (MW)', or a type column like 'Plant Type'.")
 
 else:
