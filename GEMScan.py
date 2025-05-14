@@ -71,10 +71,8 @@ if uploaded_file:
 
     st.sidebar.header("🔎 Filter Options")
 
-    # Universal filter logic toggle
     logic_mode = st.sidebar.radio("Combine all filters using:", ["AND", "OR"], index=0)
 
-    # Reset button
     if st.sidebar.button("🔄 Reset All Filters"):
         for key in list(st.session_state.keys()):
             if key.endswith("_select_all") or key.endswith("_multiselect") or key.endswith("_logic"):
@@ -83,14 +81,12 @@ if uploaded_file:
 
     filter_conditions = []
 
-    # Numeric filter: Capacity
     if "Capacity (MW)" in df.columns:
         min_cap, max_cap = float(df["Capacity (MW)"].min()), float(df["Capacity (MW)"].max())
         cap_range = st.sidebar.slider("Capacity (MW)", min_value=min_cap, max_value=max_cap, value=(min_cap, max_cap))
         condition = (df["Capacity (MW)"] >= cap_range[0]) & (df["Capacity (MW)"] <= cap_range[1])
         filter_conditions.append(condition)
 
-    # Numeric filter: Start year
     if "Start year" in df.columns:
         year_col = df["Start year"].dropna()
         if not year_col.empty:
@@ -99,14 +95,12 @@ if uploaded_file:
             condition = (df["Start year"] >= selected_years[0]) & (df["Start year"] <= selected_years[1])
             filter_conditions.append(condition)
 
-    # Boolean filter: GEM unit
     if "GEM unit/phase ID" in df.columns:
         include_gem_only = st.sidebar.checkbox("✅ Only include GEM units", value=False)
         if include_gem_only:
             condition = df["GEM unit/phase ID"].notna()
             filter_conditions.append(condition)
 
-    # String filters with Match ANY / Match ALL logic
     for column in df.columns:
         if column in ["Capacity (MW)", "Start year", "GEM unit/phase ID"]:
             continue
@@ -125,7 +119,6 @@ if uploaded_file:
                         condition = df[column].apply(lambda x: all(opt in str(x) for opt in selected_options))
                     filter_conditions.append(condition)
 
-    # Apply combined filter
     if filter_conditions:
         combined_filter = filter_conditions[0]
         for cond in filter_conditions[1:]:
@@ -138,7 +131,6 @@ if uploaded_file:
         st.warning("⚠️ No data matches your filters.")
         st.stop()
 
-    # Sort and show
     sort_column = st.selectbox("🗂️ Sort by column:", df.columns)
     sort_order = st.radio("Sort Order", ["Ascending", "Descending"])
     filtered_df = filtered_df.sort_values(by=sort_column, ascending=(sort_order == "Ascending"))
@@ -153,7 +145,6 @@ if uploaded_file:
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-    # Chart Builder
     st.header("📈 Customize Your Chart")
 
     chart_type = st.selectbox("Choose chart type", ["Line", "Bar", "Area", "Pie"])
@@ -205,7 +196,6 @@ if uploaded_file:
         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
 
-    # Cumulative Chart
     st.header("📈 Cumulative Plant Chart (Filtered Data)")
     if "Capacity (MW)" in filtered_df.columns and "Start year" in filtered_df.columns:
         group_10_300 = filtered_df[(filtered_df["Capacity (MW)"] >= 10) & (filtered_df["Capacity (MW)"] <= 300)]
@@ -233,5 +223,52 @@ if uploaded_file:
             file_name="cumulative_data.xlsx",
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
+
+    # New cumulative chart by plant type
+    st.header("📈 Cumulative 10–300 MW Plants by Type Since 2015")
+
+    type_col = None
+    for col in ["Type", "Plant Type", "Technology"]:
+        if col in df.columns:
+            type_col = col
+            break
+
+    if type_col is None:
+        st.warning("⚠️ Could not find a column for plant type (e.g., 'Type', 'Plant Type', or 'Technology').")
+    else:
+        cum_df = filtered_df[
+            (filtered_df["Capacity (MW)"] >= 10) &
+            (filtered_df["Capacity (MW)"] <= 300) &
+            (filtered_df["Start year"] >= 2015)
+        ].copy()
+
+        cum_df = cum_df[[type_col, "Start year"]].dropna()
+        cum_df["Start year"] = cum_df["Start year"].astype(int)
+
+        group_counts = (
+            cum_df
+            .groupby(["Start year", cum_df[type_col]])
+            .size()
+            .unstack(fill_value=0)
+            .sort_index()
+            .cumsum()
+        )
+
+        fig3, ax3 = plt.subplots(figsize=(10, 6))
+        group_counts.plot(ax=ax3, marker='o')
+        ax3.set_title("Cumulative number of 10 - 300 MW plants built starting 2015,\nsplit into different plant types")
+        ax3.set_xlabel("Year")
+        ax3.set_ylabel("Cumulative Count")
+        ax3.grid(True)
+        ax3.legend(title=type_col)
+        st.pyplot(fig3)
+
+        st.download_button(
+            label="📥 Download cumulative chart data",
+            data=to_excel_bytes(group_counts),
+            file_name="cumulative_by_type.xlsx",
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        )
+
 else:
     st.info("👆 Please upload an Excel file to begin.")
