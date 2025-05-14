@@ -11,9 +11,19 @@ uploaded_file = st.file_uploader("📥 Upload an Excel file", type=["xlsx"])
 
 @st.cache_data
 def dedup_columns(df):
-    df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
-    df.columns = df.columns.map(str)
+    seen = {}
+    new_cols = []
+    for col in df.columns:
+        col_str = str(col)
+        if col_str not in seen:
+            seen[col_str] = 0
+            new_cols.append(col_str)
+        else:
+            seen[col_str] += 1
+            new_cols.append(f"{col_str}.{seen[col_str]}")
+    df.columns = new_cols
     return df
+
 
 @st.cache_data
 def get_valid_sheet_names(upload):
