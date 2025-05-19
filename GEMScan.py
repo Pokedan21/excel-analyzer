@@ -313,5 +313,5 @@ else:
             mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
 
-else:
-    st.info("👆 Please upload an Excel file to begin.")
+ else:
+     st.info("👆 Please upload an Excel file to begin.")
