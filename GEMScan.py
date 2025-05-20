@@ -131,7 +131,10 @@ if uploaded_file:
                         col_data = df[column].dropna().astype(str)
 
                         if column in unique_columns:
-                            vc = df[column].value_counts()
+                            unique_vals = df[column].value_counts()
+                            unique_vals = unique_vals[unique_vals == 1].index
+                            condition = df[column].isin(unique_vals)
+                            filter_conditions.append(condition)
                             unique_vals = vc[vc == 1].index.tolist()
                             col_data = col_data[col_data.isin(unique_vals)]
 
