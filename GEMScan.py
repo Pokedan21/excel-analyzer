@@ -52,7 +52,7 @@ if uploaded_file:
         with st.spinner("🔄 Loading sample data..."):
             sample_df = try_convert_dates(load_sample_sheet(uploaded_file, selected_sheet))
         unique_columns = st.sidebar.multiselect("Select columns to filter for unique values only", options=df.columns.tolist())
-            sample_df["Start year"] = pd.to_numeric(sample_df.get("Start year", pd.Series(dtype="float")), errors="coerce")
+        sample_df["Start year"] = pd.to_numeric(sample_df.get("Start year", pd.Series(dtype="float")), errors="coerce")
         st.success("✅ Sample loaded.")
 
         st.markdown("### 🧾 Sample Columns in File")
