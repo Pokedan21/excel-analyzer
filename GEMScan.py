@@ -67,6 +67,7 @@ if uploaded_file:
                 df = try_convert_dates(load_full_sheet(uploaded_file, selected_sheet))
                 df["Start year"] = pd.to_numeric(df.get("Start year", pd.Series(dtype="float")), errors="coerce")
             st.success("✅ Full data loaded successfully.")
+        else:
             df = sample_df.copy()
         unique_columns = st.sidebar.multiselect("Select columns to filter for unique values only", options=df.columns.tolist())
 
