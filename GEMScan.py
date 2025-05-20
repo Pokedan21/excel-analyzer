@@ -190,6 +190,7 @@ if uploaded_file:
 
         if group_col:
             plot_df = filtered_df.groupby([x_col, group_col])[y_col].count().unstack().fillna(0)
+        else:
             plot_df = filtered_df.groupby(x_col)[y_col].count()
 
         fig, ax = plt.subplots()
