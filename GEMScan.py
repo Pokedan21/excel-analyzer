@@ -119,13 +119,13 @@ if uploaded_file:
 
 
             # Apply uniqueness filters BEFORE the column loop
-            for ucol in unique_columns:
-                if ucol in df.columns:
-                    val_counts = df[ucol].value_counts()
-                    unique_vals = val_counts[val_counts == 1].index
-                    df = df[df[ucol].isin(unique_vals)]
+        for ucol in unique_columns:
+             if ucol in df.columns:
+                 val_counts = df[ucol].value_counts()
+                 unique_vals = val_counts[val_counts == 1].index
+                 df = df[df[ucol].isin(unique_vals)]
 
-            for i, column in enumerate(df.columns):
+        for i, column in enumerate(df.columns):
                 if column in ["Capacity (MW)", "Start year", "GEM unit/phase ID"]:
                     continue
 
