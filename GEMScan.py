@@ -130,12 +130,11 @@ if uploaded_file:
 
                         col_data = df[column].dropna().astype(str)
 
+                        # Apply uniqueness filtering FIRST if selected
                         if column in unique_columns:
-                            unique_vals = df[column].value_counts()
-                            unique_vals = unique_vals[unique_vals == 1].index
-                            condition = df[column].isin(unique_vals)
-                            filter_conditions.append(condition)
-                            unique_vals = vc[vc == 1].index.tolist()
+                            value_counts = df[column].value_counts()
+                            only_once_values = value_counts[value_counts == 1].index
+                            df = df[df[column].isin(only_once_values)]
                             col_data = col_data[col_data.isin(unique_vals)]
 
                         if search_term:
