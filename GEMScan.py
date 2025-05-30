@@ -78,7 +78,7 @@ if uploaded_file:
 
         count_filter_mode = st.sidebar.radio(
             "Show rows where selected value appears...",
-            ["Don't filter", "Exactly once", "Exactly twice", "Three or more times"]
+            ["Don't filter", "Exactly once", "Exactly twice", "Exactly three times", "More than three times"]
         )
 
         # Apply frequency filter to df before other filters
@@ -88,9 +88,12 @@ if uploaded_file:
                 selected_vals = val_counts[val_counts == 1].index
             elif count_filter_mode == "Exactly twice":
                 selected_vals = val_counts[val_counts == 2].index
-            elif count_filter_mode == "Three or more times":
-                selected_vals = val_counts[val_counts >= 3].index
+            elif count_filter_mode == "Exactly three times":
+                selected_vals = val_counts[val_counts == 3].index
+            elif count_filter_mode == "More than three times":
+                selected_vals = val_counts[val_counts > 3].index
             df = df[df[count_filter_column].isin(selected_vals)]
+
 
         st.sidebar.header("🔎 Filter Options")
 
