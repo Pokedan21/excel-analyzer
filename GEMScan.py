@@ -62,6 +62,27 @@ if uploaded_file:
         })
         st.dataframe(col_df)
 
+        # 🔁 Frequency Filter (must be above all other filters)
+        st.sidebar.markdown("### 🔁 Frequency Filter (by column)")
+        freq_column = st.sidebar.selectbox("Column to count instances", df.columns.tolist(), key="freq_col")
+        freq_choice = st.sidebar.radio(
+            "Instance frequency to filter:",
+            ["All", "Exactly 1", "Exactly 2", "Exactly 3", "More than 3"],
+            key="freq_value"
+        )
+
+        if freq_choice != "All":
+            value_counts = df[freq_column].value_counts()
+            if freq_choice == "Exactly 1":
+                valid_values = value_counts[value_counts == 1].index
+            elif freq_choice == "Exactly 2":
+                valid_values = value_counts[value_counts == 2].index
+            elif freq_choice == "Exactly 3":
+                valid_values = value_counts[value_counts == 3].index
+            elif freq_choice == "More than 3":
+                valid_values = value_counts[value_counts > 3].index
+            df = df[df[freq_column].isin(valid_values)]
+
         if st.checkbox("🔍 Load full data from this sheet (may take time)"):
             with st.spinner("📂 Loading full dataset... please wait."):
                 df = try_convert_dates(load_full_sheet(uploaded_file, selected_sheet))
