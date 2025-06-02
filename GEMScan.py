@@ -183,8 +183,8 @@ if uploaded_file:
             combined_filter = filter_conditions[0]
             for cond in filter_conditions[1:]:
                 combined_filter = combined_filter & cond if logic_mode == "AND" else combined_filter | cond
-            filtered_df = df[combined_filter]
-            filtered_df = df.copy()
+            filtered_df = df[combined_filter].copy()
+
 
         if filtered_df.empty:
             st.warning("⚠️ No data matches your filters.")
